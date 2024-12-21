@@ -83,9 +83,9 @@ class AttnFetchPixartX():
             processors[layer] = processor
         transformer.set_attn_processor(processors)
         
-    def set_text_processor(self):
+    def set_text_processor(self,encoder):
         for i in range(24):
-            t5_attention = self.text_encoder.encoder.block[i].layer[0].SelfAttention
+            t5_attention = encoder.encoder.block[i].layer[0].SelfAttention
             t5_attention.forward =  forward_x.__get__(t5_attention, t5_attention.__class__)
 
 

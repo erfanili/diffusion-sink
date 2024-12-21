@@ -15,30 +15,30 @@ from diffusers import StableDiffusionPipeline
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
 from diffusers import PixArtAlphaPipeline
 from diffusers import StableDiffusion3Pipeline
-from models.sd1_5.pipeline_stable_diffusion_x import StableDiffusionPipelineX
-from models.sd1_5.pipeline_stable_diffusion_x_latent_update import  StableDiffusionPipelineX_2
-from models.sd1_5.storage_sd1_5 import *
+# from models.sd1_5.pipeline_stable_diffusion_x import StableDiffusionPipelineX
+# from models.sd1_5.pipeline_stable_diffusion_x_latent_update import  StableDiffusionPipelineX_2
+# from models.sd1_5.storage_sd1_5 import *
 from models.pixart.pipeline_pixart_alpha_x import PixArtAlphaPipelineX
 from models.pixart.storage_pixart_x import AttnFetchPixartX
-from models.flux.storage_flux_x import AttnFetchFluxX
-from models.flux.pipeline_flux_x import FluxPipelineX
+# from models.flux.storage_flux_x import AttnFetchFluxX
+# from models.flux.pipeline_flux_x import FluxPipelineX
 from models.pixart.t5_attention_forward_x import forward_x
-from models.sd1_5.clip_sdpa_attention_x import CLIPSdpaAttentionX
+# from models.sd1_5.clip_sdpa_attention_x import CLIPSdpaAttentionX
 # from latent_update import *
 from diffusers import FluxPipeline
 # from models.pixart.latent_update import LatentUpdatetPixartX
-
+# from models.anchor_update import Anchor
  
 def load_model(model_name,device, **kwargs):
     
     all_models = {
         'sd1_5': (StableDiffusionPipeline,"runwayml/stable-diffusion-v1-5",DDIMScheduler,None),
-        'sd1_5x': (StableDiffusionPipeline,"runwayml/stable-diffusion-v1-5",DDIMScheduler,AttnFetchSDX),
-        'pixart' : (PixArtAlphaPipeline ,"PixArt-alpha/PixArt-XL-2-512x512",None,None),
-        'pixart_x' : (PixArtAlphaPipeline ,"PixArt-alpha/PixArt-XL-2-512x512",None,AttnFetchPixartX),
+        # 'sd1_5x': (StableDiffusionPipeline,"runwayml/stable-diffusion-v1-5",DDIMScheduler,AttnFetchSDX),
+        'pixart' : (PixArtAlphaPipeline ,"PixArt-alpha/PixArt-XL-2-512x512",None,None,None),
+        'pixart_x' : (PixArtAlphaPipelineX ,"PixArt-alpha/PixArt-XL-2-512x512",None,AttnFetchPixartX),
         'sd_3_medium': (StableDiffusion3Pipeline , "stabilityai/stable-diffusion-3-medium-diffusers", None),
         'sd_3_large': (StableDiffusion3Pipeline, "stabilityai/stable-diffusion-3.5-large", None),
-        'flux-dev':(FluxPipelineX,"black-forest-labs/FLUX.1-dev",None, AttnFetchFluxX)
+        # 'flux-dev':(FluxPipelineX,"black-forest-labs/FLUX.1-dev",None, AttnFetchFluxX)
         
     }
 
@@ -47,16 +47,17 @@ def load_model(model_name,device, **kwargs):
     model_id = all_models[model_name][1]
     scheduler_class = all_models[model_name][2]
     attn_fetch = all_models[model_name][3]
+    # anchor = all_models[model_name][4]
     
-    if device == 'balanced':
-        model = model_class.from_pretrained(pretrained_model_name_or_path=model_id,torch_dtype = torch.bfloat16,device_map = 'balanced',offload_buffers = True)
-        model.attn_fetch_x = attn_fetch()
-    else:
-        model = model_class.from_pretrained(pretrained_model_name_or_path=model_id,torch_dtype = torch.bfloat16)
-        model.to(device)
+
+    model = model_class.from_pretrained(pretrained_model_name_or_path=model_id, torch_dtype = torch.float16)
+    model.attn_fetch_x = attn_fetch()
+
+    model.to(device)
+    # breakpoint()
     # if attn_fetch is not None:
-    #     model.attn_fetch_x = attn_fetch()
-    #     model.attn_fetch_x.set_text_processor()
+    model.attn_fetch_x = attn_fetch()
+    model.attn_fetch_x.set_text_processor(encoder = model.text_encoder)
     if scheduler_class == DDIMScheduler:
         model.scheduler = scheduler_class.from_config(model.scheduler.config)
         model.scheduler.config.timestep_spacing = 'linspace'
@@ -110,10 +111,10 @@ def generate(prompt,
                     raise
             
         
-        for block in blocks_to_save:
-            all_maps[block] =pipe.attn_fetch_x.maps_by_block()[block] 
-                
-    return image, all_maps   
+        # for block in blocks_to_save:
+        #     all_maps[block] =pipe.attn_fetch_x.maps_by_block()[block] 
+    noise_pred = pipe.anchor.noise_pred
+    return image, noise_pred   
 
 
 

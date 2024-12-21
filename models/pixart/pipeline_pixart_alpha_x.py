@@ -290,8 +290,10 @@ class PixArtAlphaPipelineX(DiffusionPipeline):
     
     
         ##_x
+        
         self.attn_fetch_x = None
         self.latent_update_x = None
+        
         ##_x
     
     # Adapted from diffusers.pipelines.deepfloyd_if.pipeline_if.encode_prompt
@@ -685,7 +687,22 @@ class PixArtAlphaPipelineX(DiffusionPipeline):
         latents = latents * self.scheduler.init_noise_sigma
         return latents
 
-    @torch.no_grad()
+    
+    @staticmethod
+    def update_anchor(self,
+        anchor: torch.Tensor, loss: torch.Tensor, step_size: float
+    ) -> torch.Tensor:
+        """Update the latent according to the computed loss."""
+        grad_cond = torch.autograd.grad(
+            loss.requires_grad_(True), [self.anchor], retain_graph=True
+        )[0]
+        new_anchor = anchor - step_size * grad_cond
+        return new_anchor
+        
+        
+    
+    
+    # @torch.no_grad()
     @replace_example_docstring(EXAMPLE_DOC_STRING)
     def __call__(
         self,
@@ -863,7 +880,7 @@ class PixArtAlphaPipelineX(DiffusionPipeline):
             max_sequence_length=max_sequence_length,
         )
         
-        
+        self.text_encoder.to('cpu')
         ######get text self attention
         
         if self.attn_fetch_x is not None:
@@ -935,8 +952,11 @@ class PixArtAlphaPipelineX(DiffusionPipeline):
                     current_timestep = current_timestep[None].to(latent_model_input.device)
                 # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
                 current_timestep = current_timestep.expand(latent_model_input.shape[0])
-
+                # breakpoint()
                 # predict noise model_output
+                
+                # self.anchor = self.anchor.to(device)
+                
                 noise_pred = self.transformer(
                     latent_model_input,
                     encoder_hidden_states=prompt_embeds,
@@ -945,19 +965,25 @@ class PixArtAlphaPipelineX(DiffusionPipeline):
                     added_cond_kwargs=added_cond_kwargs,
                     return_dict=False,
                     # cross_attention_kwargs={'kwargs':{"attn_scale": scale}}
-                    cross_attention_kwargs={'kwargs':{'timestep':t}}
-                    
+                    cross_attention_kwargs={'kwargs':{'timestep':t, 'anchor_token': self.anchor.token[i]}}
                 )[0]
                 
 
                 
+                #####_x
+                #update anchor token
+                self.anchor.noise_pred[i] = noise_pred
+                # loss = self.anchor.get_layers_loss(transformer = self.transformer)
+                # self.anchor[i] = self.update_anchor(anchor = self.anchor[i], loss = loss)
+                
+                ##end_update_anchor token
                 
                 ###_x
-                if self.attn_fetch_x is not None:
-                    self.attn_fetch_x.store_attn_by_timestep(t.item(),self.transformer)
-                else:
-                    print('no attention fetch. attention maps are not being stored.')            
-                ###_X
+                # if self.attn_fetch_x is not None:
+                #     self.attn_fetch_x.store_attn_by_timestep(t.item(),self.transformer)
+                # else:
+                #     print('no attention fetch. attention maps are not being stored.')            
+                # ###_X
                 
                 # perform guidance
                 if do_classifier_free_guidance:
@@ -966,22 +992,22 @@ class PixArtAlphaPipelineX(DiffusionPipeline):
 
 
                 ####latent_update_X
-                if i < self.latent_update_x.config.max_iter_to_update:
-                    latents = self.latent_update_x.optimize(
-                        latent = noise_pred,
-                        text_sa = all_text_sa,
-                        timestep = t,
-                        attn_map =self.attn_fetch_x.storage,)
+                # if i < self.latent_update_x.config.max_iter_to_update:
+                #     latents = self.latent_update_x.optimize(
+                #         latent = noise_pred,
+                #         text_sa = all_text_sa,
+                #         timestep = t,
+                #         attn_map =self.attn_fetch_x.storage,)
                 
-                    if i in self.latent_update_x.config.iterative_refinement_steps:
-                        latents = self.latent_update_x.perform_iterative_refinement_step_with_attn(
-                            latents = noise_pred,
-                            text_embeddings = prompt_embeds,
-                            unet = self.unet,
-                            attention_fetch = self.attn_fetch_x,
-                            text_sa = all_text_sa,
-                            timestep = t,
-                            attn_map =self.attn_fetch_x.storage,)
+                #     if i in self.latent_update_x.config.iterative_refinement_steps:
+                #         latents = self.latent_update_x.perform_iterative_refinement_step_with_attn(
+                #             latents = noise_pred,
+                #             text_embeddings = prompt_embeds,
+                #             unet = self.unet,
+                #             attention_fetch = self.attn_fetch_x,
+                #             text_sa = all_text_sa,
+                #             timestep = t,
+                #             attn_map =self.attn_fetch_x.storage,)
 
 
                 ##### end latent update_X
