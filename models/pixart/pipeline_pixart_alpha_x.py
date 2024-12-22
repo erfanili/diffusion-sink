@@ -34,7 +34,7 @@ from diffusers.utils import (
 )
 from diffusers.utils.torch_utils import randn_tensor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline, ImagePipelineOutput
-
+from models.pixart.pixart_transformer_2d_x import PixArtTransformer2DModelX
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -276,7 +276,7 @@ class PixArtAlphaPipelineX(DiffusionPipeline):
         tokenizer: T5Tokenizer,
         text_encoder: T5EncoderModel,
         vae: AutoencoderKL,
-        transformer: PixArtTransformer2DModel,
+        transformer: PixArtTransformer2DModelX,
         scheduler: DPMSolverMultistepScheduler,
     ):
         super().__init__()

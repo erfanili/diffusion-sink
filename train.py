@@ -192,4 +192,6 @@ for original_noise_pred,seed_batch,text_prompts in dataloader:
     loss = criterion(noise_pred_positive, original_noise_output) 
     print(loss.item())# Compute the loss
     loss.backward()  # Backpropagate the gradients
-    optimizer.step()  # Update the model parameters
+    optimizer.step()  
+    breakpoint()
+    # Update the model parameters
