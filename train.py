@@ -183,15 +183,12 @@ for original_noise_pred,seed_batch,text_prompts in dataloader:
             )[0]
 
     noise_pred_positive = noise_pred[5:,4:,:,:]
-    print(torch.norm(noise_pred_positive))
-    
+
     original_noise_output  = original_noise_pred[:,i,:,:,:]
-    # breakpoint()
+
     optimizer.zero_grad()  # Clear the gradients
     
     loss = criterion(noise_pred_positive, original_noise_output) 
     print(loss.item())# Compute the loss
     loss.backward()  # Backpropagate the gradients
     optimizer.step()  
-    breakpoint()
-    # Update the model parameters

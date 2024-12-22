@@ -688,18 +688,7 @@ class PixArtAlphaPipelineX(DiffusionPipeline):
         return latents
 
     
-    @staticmethod
-    def update_anchor(self,
-        anchor: torch.Tensor, loss: torch.Tensor, step_size: float
-    ) -> torch.Tensor:
-        """Update the latent according to the computed loss."""
-        grad_cond = torch.autograd.grad(
-            loss.requires_grad_(True), [self.anchor], retain_graph=True
-        )[0]
-        new_anchor = anchor - step_size * grad_cond
-        return new_anchor
-        
-        
+
     
     
     # @torch.no_grad()
@@ -952,10 +941,7 @@ class PixArtAlphaPipelineX(DiffusionPipeline):
                     current_timestep = current_timestep[None].to(latent_model_input.device)
                 # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
                 current_timestep = current_timestep.expand(latent_model_input.shape[0])
-                # breakpoint()
-                # predict noise model_output
-                
-                # self.anchor = self.anchor.to(device)
+
                 
                 noise_pred = self.transformer(
                     latent_model_input,
@@ -965,18 +951,15 @@ class PixArtAlphaPipelineX(DiffusionPipeline):
                     added_cond_kwargs=added_cond_kwargs,
                     return_dict=False,
                     # cross_attention_kwargs={'kwargs':{"attn_scale": scale}}
-                    cross_attention_kwargs={'kwargs':{'timestep':t, 'anchor_token': self.anchor.token[i]}}
+                    cross_attention_kwargs=None
                 )[0]
                 
 
                 
                 #####_x
                 #update anchor token
-                self.anchor.noise_pred[i] = noise_pred
-                # loss = self.anchor.get_layers_loss(transformer = self.transformer)
-                # self.anchor[i] = self.update_anchor(anchor = self.anchor[i], loss = loss)
-                
-                ##end_update_anchor token
+                # self.anchor.noise_pred[i] = noise_pred
+
                 
                 ###_x
                 # if self.attn_fetch_x is not None:
