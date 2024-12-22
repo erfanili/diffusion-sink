@@ -17,6 +17,7 @@ import urllib.parse as ul
 from typing import Callable, List, Optional, Tuple, Union
 
 import torch
+from diffusers.utils.torch_utils import randn_tensor
 from transformers import T5EncoderModel, T5Tokenizer
 
 from diffusers.image_processor import PixArtImageProcessor
@@ -27,6 +28,8 @@ from diffusers.utils.torch_utils import randn_tensor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline, ImagePipelineOutput
 
 from create_dataset_pixart_latent_noise import *
+
+
 def retrieve_timesteps(
     scheduler,
     num_inference_steps: Optional[int] = None,
@@ -35,29 +38,7 @@ def retrieve_timesteps(
     sigmas: Optional[List[float]] = None,
     **kwargs,
 ):
-    """
-    Calls the scheduler's `set_timesteps` method and retrieves timesteps from the scheduler after the call. Handles
-    custom timesteps. Any kwargs will be supplied to `scheduler.set_timesteps`.
 
-    Args:
-        scheduler (`SchedulerMixin`):
-            The scheduler to get timesteps from.
-        num_inference_steps (`int`):
-            The number of diffusion steps used when generating samples with a pre-trained model. If used, `timesteps`
-            must be `None`.
-        device (`str` or `torch.device`, *optional*):
-            The device to which the timesteps should be moved to. If `None`, the timesteps are not moved.
-        timesteps (`List[int]`, *optional*):
-            Custom timesteps used to override the timestep spacing strategy of the scheduler. If `timesteps` is passed,
-            `num_inference_steps` and `sigmas` must be `None`.
-        sigmas (`List[float]`, *optional*):
-            Custom sigmas used to override the timestep spacing strategy of the scheduler. If `sigmas` is passed,
-            `num_inference_steps` and `timesteps` must be `None`.
-
-    Returns:
-        `Tuple[torch.Tensor, int]`: A tuple where the first element is the timestep schedule from the scheduler and the
-        second element is the number of inference steps.
-    """
     if timesteps is not None and sigmas is not None:
         raise ValueError("Only one of `timesteps` or `sigmas` can be passed. Please choose one to set custom values")
     if timesteps is not None:
@@ -84,6 +65,28 @@ def retrieve_timesteps(
         scheduler.set_timesteps(num_inference_steps, device=device, **kwargs)
         timesteps = scheduler.timesteps
     return timesteps, num_inference_steps
+
+
+
+    
+def create_initial_latents(seed_batch):
+    shape = (1,4,64,64)
+    latent_batch = []
+    for _ in range(5):
+        generator = torch.Generator()
+        generator.manual_seed(seed_batch.tolist()[_])
+        latent_batch.append(
+            torch.randn(shape, generator=generator)
+        )
+        latents = torch.cat(latent_batch, dim=0).to(device)
+        latents = latents * 1.0 ## model.scheduler.init_noise_sigma=1.0
+        # latent_batch.append(latents)
+    # latent_batch = torch.cat(latent_batch,dim = 1)
+    
+    return latents
+
+
+
 dataset = LatentNoiseDataset()
 dataloader = DataLoader(dataset, batch_size=5, shuffle=True, drop_last=True)
 
@@ -125,17 +128,19 @@ eta = 0.0,
 generator= None,
 extra_step_kwargs = model.prepare_extra_step_kwargs(generator, eta)
 
-for original_noise_pred, text_prompts in dataloader:
+
+
+
+# breakpoint()
+for original_noise_pred,seed_batch,text_prompts in dataloader:
+    
+    # prompt_emebds = prompt_embeds.to(device)
     original_noise_pred = original_noise_pred.to(device)
     
     with torch.no_grad():
         text_prompts = list(text_prompts)
-        (
-            prompt_embeds,
-            prompt_attention_mask,
-            negative_prompt_embeds,
-            negative_prompt_attention_mask,
-        ) = model.encode_prompt(
+        (prompt_embeds,prompt_attention_mask,negative_prompt_embeds,negative_prompt_attention_mask,
+         ) = model.encode_prompt(
             prompt = text_prompts,
             do_classifier_free_guidance = True,
             device=device,
@@ -146,34 +151,26 @@ for original_noise_pred, text_prompts in dataloader:
             prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
             prompt_attention_mask = torch.cat([negative_prompt_attention_mask, prompt_attention_mask], dim=0)
 
-    prompt_emebds = prompt_embeds.to(device)
-    
+
     
     i = torch.randint(low = 1, high = num_inference_steps, size = (1,))[0]
-    
     current_timestep = timesteps[i]
     t = current_timestep
-    # breakpoint()
     
+    latents = create_initial_latents(seed_batch=seed_batch)
     # breakpoint()
-    original_noise_input  = original_noise_pred[:,i-1,:,:,:]
-    original_noise_output  = original_noise_pred[:,i,:,:,:]
-    # breakpoint()
-    # noise_pred_uncond, original_noise_pred_text = original_noise_pred.chunk(2)
-    # original_noise_pred = noise_pred_uncond + guidance_scale * (original_noise_pred_text - noise_pred_uncond)
-    # print('i',i)
+    for _ in range(i):
+        model.scheduler._step_index = _
+        latents = model.scheduler.step(original_noise_pred[:,i,:,:], t,latents, **extra_step_kwargs, return_dict=False)[0]
+        
+    
     model.scheduler._step_index = i.clone()
-    # print('ii',i)
-    latents = model.scheduler.step(original_noise_output, t,latents, **extra_step_kwargs, return_dict=False)[0]
     latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
     latent_model_input = model.scheduler.scale_model_input(latent_model_input, t)
     current_timestep = current_timestep.expand(latent_model_input.shape[0])
 
-    # original_noise_pred = model.scheduler.scale_model_input(original_noise_pred, t)
-    
-    # anchor_token = model.transformer.anchor_token[i]
-    # print(i)
-    # breakpoint()
+
+
     noise_pred = model.transformer(
                 latent_model_input.to(torch.float16),
                 encoder_hidden_states=prompt_embeds,
@@ -187,8 +184,11 @@ for original_noise_pred, text_prompts in dataloader:
 
     noise_pred_positive = noise_pred[5:,4:,:,:]
     print(torch.norm(noise_pred_positive))
+    
+    original_noise_output  = original_noise_pred[:,i,:,:,:]
     # breakpoint()
     optimizer.zero_grad()  # Clear the gradients
+    
     loss = criterion(noise_pred_positive, original_noise_output) 
     print(loss.item())# Compute the loss
     loss.backward()  # Backpropagate the gradients
